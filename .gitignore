@@ -21,6 +21,7 @@ dist/
 build/
 coverage/
 
-# Vendored binaries (downloaded at runtime)
-bin/
+# # Vendored binaries (downloaded at runtime)
+# bin/
+# !bin/yt-dlp
 
