@@ -1,0 +1,33 @@
+{
+  "name": "yt2mp3",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simple web app to convert YouTube links to high-quality MP3",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "youtube",
+    "mp3",
+    "converter",
+    "yt-dlp",
+    "ffmpeg"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "pino": "^9.3.2",
+    "sanitize-filename": "^1.6.3",
+    "ytdl-core": "^4.11.5",
+    "yt-dlp-wrap": "^2.3.12"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}

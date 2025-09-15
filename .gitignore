@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Logs and debug
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# Environment files
+.env
+.env.*
+
+# OS/editor junk
+.DS_Store
+.idea/
+.vscode/
+
+# Build artifacts
+dist/
+build/
+coverage/
+
+# Vendored binaries (downloaded at runtime)
+bin/
+

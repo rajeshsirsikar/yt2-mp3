@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YT → MP3 (320kbps)</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Convert YouTube to MP3</h1>
+      <p class="sub">High-quality MP3 (up to 320 kbps)</p>
+
+      <form id="convert-form">
+        <label for="url">YouTube URL</label>
+        <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." required />
+
+        <label for="bitrate">Bitrate (kbps)</label>
+        <select id="bitrate" name="bitrate">
+          <option value="320" selected>320</option>
+          <option value="256">256</option>
+          <option value="192">192</option>
+          <option value="128">128</option>
+          <option value="96">96</option>
+          <option value="64">64</option>
+        </select>
+
+        <button type="submit">Convert & Download</button>
+      </form>
+
+      <p class="note">
+        Use only for content you own or have permission to download. Respect the source platform’s Terms of Service.
+      </p>
+
+      <div id="status" class="status"></div>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+  </html>
+
