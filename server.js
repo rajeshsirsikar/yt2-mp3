@@ -117,6 +117,10 @@ async function getVideoInfoYtdl(url) {
   };
 }
 
+function extractIdFromUrl(url) {
+  try { return ytdl.getURLVideoID(url); } catch { return ''; }
+}
+
 app.post('/api/convert', async (req, res) => {
   const { url, bitrate } = req.body || {};
 
@@ -146,14 +150,14 @@ app.post('/api/convert', async (req, res) => {
         info = await getVideoInfoYtDlp(ytDlpPath, url);
       }
     } catch (e2) {
-      logger.error({ err: e2 }, 'Failed to fetch video info');
-      return res.status(500).json({ error: 'Failed to fetch video info.' });
+      logger.error({ err: e2 }, 'Failed to fetch video info; proceeding without metadata');
+      info = null;
     }
   }
 
   const title = (info && (info.title)) || 'audio';
   const artist = (info && (info.uploader || info.channel)) || 'YouTube';
-  const id = info && info.id ? info.id : '';
+  const id = (info && info.id) || extractIdFromUrl(url) || '';
   const baseName = sanitize(`${title}${artist ? ' - ' + artist : ''}`.trim()) || 'audio';
   const fileName = sanitize(`${baseName}${id ? ' [' + id + ']' : ''}.mp3`);
 
