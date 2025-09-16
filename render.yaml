@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: yt2-mp3-api
+    runtime: node          # Use 'runtime' instead of 'env'
+    plan: starter
+    branch: main           # Required: specify Git branch
+    buildCommand: |
+      npm install
+      # Install Python and yt-dlp system dependencies  
+      apt-get update && apt-get install -y python3 python3-pip
+      pip3 install yt-dlp --user
+      # Ensure yt-dlp is in PATH
+      export PATH=$PATH:/opt/render/.local/bin
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000

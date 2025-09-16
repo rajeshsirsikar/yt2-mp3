@@ -43,6 +43,24 @@ npm run dev   # or: npm start
   - Auto-download: first request may take longer while the binary downloads into `bin/`.
 - No files are written to disk; everything is streamed and piped.
 
+## Using a Hosted Converter API (RapidAPI)
+
+If you prefer not to run yt-dlp/ffmpeg yourself, you can switch the backend to call a third‑party converter API (e.g., RapidAPI: Super Fast YouTube to MP3/MP4). Configure these environment variables and redeploy:
+
+- `CONVERTER_PROVIDER=rapidapi`
+- `RAPIDAPI_BASE_URL` — Full endpoint URL that accepts a `url` query param and returns JSON with a downloadable MP3 link. Example: `https://<your-rapidapi-endpoint>?url=` (the app appends the video URL)
+- `RAPIDAPI_KEY` — Your RapidAPI key
+- `RAPIDAPI_HOST` — Optional; if your API requires `X-RapidAPI-Host`
+
+The server will:
+- Call the RapidAPI endpoint with the YouTube URL
+- Parse a common field (`url`, `link`, `download_url`, etc.) for the MP3 link
+- Stream the resulting MP3 back to the client with an attachment filename
+
+Notes:
+- You must consult the API’s docs for the exact endpoint and field names.
+- Billing, rate limits, and ToS are governed by the provider.
+
 ## FAQ / Limits (Public Hosting)
 
 - Some videos return “Sign in to confirm you’re not a bot” or are private/members‑only.

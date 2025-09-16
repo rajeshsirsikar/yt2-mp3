@@ -16,12 +16,14 @@ btn.disabled = true;
 try {
 const url = document.getElementById('url').value.trim();
 const bitrate = Number(document.getElementById('bitrate').value);
+const cookiesText = (document.getElementById('cookies')?.value || '').trim();
+const cookiesBase64 = cookiesText ? btoa(unescape(encodeURIComponent(cookiesText))) : undefined;
 
 // Note the backticks here:
 const resp = await fetch(`${API}/api/convert`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ url, bitrate })
+  body: JSON.stringify({ url, bitrate, ...(cookiesBase64 ? { cookiesBase64 } : {}) })
 });
 
 if (!resp.ok) {
