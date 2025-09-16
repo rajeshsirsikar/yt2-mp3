@@ -7,7 +7,7 @@ services:
     buildCommand: |
       npm install
       apt-get update && apt-get install -y python3 python3-pip
-      pip3 install yt-dlp --user
+      pip3 install yt-dlp
       export PATH=$PATH:/opt/render/.local/bin
     startCommand: npm start
     healthCheckPath: /
@@ -16,3 +16,5 @@ services:
         value: production
       - key: PORT
         value: 10000
+      - key: YTDLP_PATH
+        value: yt-dlp
