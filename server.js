@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const pino = require('pino');
 const sanitize = require('sanitize-filename');
@@ -20,6 +21,14 @@ const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+// Basic API rate limiting for public site
+const apiLimiter = rateLimit({
+  windowMs: Number(process.env.RATE_WINDOW_MS || 10 * 60 * 1000),
+  limit: Number(process.env.RATE_MAX || 30),
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/', apiLimiter);
 
 const PORT = process.env.PORT || 3000;
 
@@ -42,7 +51,10 @@ function isYouTubeUrl(url) {
 const BIN_DIR = path.join(__dirname, 'bin');
 const LOCAL_YTDLP = path.join(BIN_DIR, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
 const ENV_YTDLP = process.env.YTDLP_PATH || '';
+const ENV_COOKIES_PATH = process.env.YTDLP_COOKIES_PATH || '';
+const ENV_COOKIES_BASE64 = process.env.YTDLP_COOKIES_BASE64 || '';
 let cachedYtDlpPath = null;
+let cachedCookiesPath = undefined; // null when ensured missing; string when present
 
 async function pathExists(p) { try { await fsp.access(p, fs.constants.X_OK); return true; } catch { return false; } }
 
@@ -74,6 +86,28 @@ async function ensureYtDlp() {
   }
 }
 
+async function ensureCookiesFile() {
+  if (cachedCookiesPath !== undefined) return cachedCookiesPath;
+  if (ENV_COOKIES_PATH) {
+    if (await pathExists(ENV_COOKIES_PATH)) {
+      cachedCookiesPath = ENV_COOKIES_PATH;
+      return cachedCookiesPath;
+    }
+  }
+  if (ENV_COOKIES_BASE64) {
+    try {
+      await fsp.mkdir(BIN_DIR, { recursive: true });
+      const target = path.join(BIN_DIR, 'cookies.txt');
+      await fsp.writeFile(target, Buffer.from(ENV_COOKIES_BASE64, 'base64'));
+      try { await fsp.chmod(target, 0o600); } catch {}
+      cachedCookiesPath = target;
+      return cachedCookiesPath;
+    } catch (_) {}
+  }
+  cachedCookiesPath = null;
+  return null;
+}
+
 function parseArgsEnv(name) {
   const s = process.env[name];
   if (!s) return [];
@@ -82,7 +116,7 @@ function parseArgsEnv(name) {
   return (m || []).map(t => t.replace(/^"|"$/g, ''));
 }
 
-function spawnYtDlpAudio(ytDlpPath, url) {
+function spawnYtDlpAudio(ytDlpPath, url, cookiesPath) {
   // Stream best available audio to stdout
   const defaultArgs = [
     '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
@@ -94,16 +128,21 @@ function spawnYtDlpAudio(ytDlpPath, url) {
     '--force-ipv4',
     '--no-warnings'
   ];
+  if (cookiesPath) defaultArgs.push('--cookies', cookiesPath);
   const extra = parseArgsEnv('YTDLP_ARGS');
   return spawn(ytDlpPath, [...defaultArgs, ...extra, url], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
-async function getVideoInfoYtDlp(ytDlpPath, url) {
+async function getVideoInfoYtDlp(ytDlpPath, url, cookiesPath) {
   return new Promise((resolve, reject) => {
     const args = ['-J', '--no-playlist', '--no-warnings', '--geo-bypass', '--force-ipv4'];
+    if (cookiesPath) { args.push('--cookies', cookiesPath); }
     const extra = parseArgsEnv('YTDLP_INFO_ARGS');
     execFile(ytDlpPath, [...args, ...extra, url], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) return reject(err);
+      if (err) {
+        const msg = (stderr && String(stderr)) || err.message || 'yt-dlp failed';
+        return reject(new Error(msg));
+      }
       try {
         const data = JSON.parse(stdout);
         resolve({
@@ -138,6 +177,15 @@ function extractIdFromUrl(url) {
   try { return ytdl.getURLVideoID(url); } catch { return ''; }
 }
 
+function classifyErrorMessage(message = '') {
+  const m = String(message).toLowerCase();
+  if (m.includes('sign in to confirm') || m.includes('this video is private') || m.includes('members-only')) return 'auth_required';
+  if (m.includes('too many requests') || m.includes(' 429') || m.includes('quota')) return 'rate_limited';
+  if (m.includes('forbidden') || m.includes('http error 403')) return 'forbidden';
+  if (m.includes('unavailable') || m.includes('not available')) return 'unavailable';
+  return null;
+}
+
 app.post('/api/convert', async (req, res) => {
   const { url, bitrate } = req.body || {};
 
@@ -154,19 +202,30 @@ app.post('/api/convert', async (req, res) => {
 
   let info;
   let ytDlpPath = await ensureYtDlp();
+  const cookiesPath = await ensureCookiesFile();
+  let infoErr = null;
 
   try {
-    info = ytDlpPath ? await getVideoInfoYtDlp(ytDlpPath, url) : await getVideoInfoYtdl(url);
+    info = ytDlpPath ? await getVideoInfoYtDlp(ytDlpPath, url, cookiesPath) : await getVideoInfoYtdl(url);
   } catch (e) {
+    infoErr = e;
     logger.warn({ err: e }, ytDlpPath ? 'yt-dlp info failed' : 'ytdl-core info failed');
     // Try the other method once
     try {
       if (ytDlpPath) info = await getVideoInfoYtdl(url); else {
         ytDlpPath = await ensureYtDlp();
         if (!ytDlpPath) throw new Error('yt-dlp unavailable');
-        info = await getVideoInfoYtDlp(ytDlpPath, url);
+        const cookies2 = await ensureCookiesFile();
+        info = await getVideoInfoYtDlp(ytDlpPath, url, cookies2);
       }
     } catch (e2) {
+      const code = classifyErrorMessage(`${infoErr ? infoErr.message : ''} ${e2 ? e2.message : ''}`);
+      if (code === 'auth_required') {
+        return res.status(403).json({ error: 'This video requires YouTube sign-in and cannot be processed by this public site.', code });
+      }
+      if (code === 'rate_limited') {
+        return res.status(429).json({ error: 'Temporarily rate-limited by YouTube. Please try again later.', code });
+      }
       logger.error({ err: e2 }, 'Failed to fetch video info; proceeding without metadata');
       info = null;
     }
@@ -186,7 +245,7 @@ app.post('/api/convert', async (req, res) => {
   let sourceStream;
   let ytDlpProc;
   if (ytDlpPath) {
-    ytDlpProc = spawnYtDlpAudio(ytDlpPath, url);
+    ytDlpProc = spawnYtDlpAudio(ytDlpPath, url, cookiesPath);
     sourceStream = ytDlpProc.stdout;
     let errBuf = '';
     ytDlpProc.stderr?.on('data', d => { const s = d.toString(); errBuf += s; if (logger.levelVal <= 20) logger.debug({ ytDlp: s }); });

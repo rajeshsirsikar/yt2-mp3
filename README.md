@@ -43,6 +43,17 @@ npm run dev   # or: npm start
   - Auto-download: first request may take longer while the binary downloads into `bin/`.
 - No files are written to disk; everything is streamed and piped.
 
+## FAQ / Limits (Public Hosting)
+
+- Some videos return “Sign in to confirm you’re not a bot” or are private/members‑only.
+  - Public instances do not use user cookies. Such videos will return a 403 with a clear message.
+- Rate limiting / 429 from YouTube
+  - The API has basic per‑IP rate limiting. If YouTube rate limits the backend, the API returns 429. Try later.
+- Live streams / DRM / geo restrictions
+  - Live/DRM content is not supported. Geo‑blocked content may fail even with `--geo-bypass`.
+- Legal use
+  - Use only for content you own or have permission to download; comply with platform Terms of Service.
+
 ## Legal and ethical use
 
 Downloading content from YouTube or other platforms may violate their Terms of Service unless the content is your own or you have explicit permission. This project is provided for lawful uses only. You are responsible for ensuring compliance with all applicable laws and terms.
