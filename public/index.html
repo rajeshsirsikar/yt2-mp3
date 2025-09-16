@@ -4,61 +4,90 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>YouTube→MP3 Converter</title>
+  
+  <!-- Import Roboto Flex Font FIRST -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap" rel="stylesheet" />
+  
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Custom CSS (after Tailwind) -->
   <link rel="stylesheet" href="style.css" />
+  
+  <script>
+    // Configure Tailwind to use Roboto Flex
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            'sans': ['Roboto Flex', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
 </head>
-<body class="bg-gray-50 text-gray-800">
+<body class="bg-gray-50 text-gray-800" style="font-family: 'Roboto Flex', sans-serif;">
   <!-- Hero -->
   <header class="bg-white shadow-md">
     <div class="max-w-4xl mx-auto p-4 flex justify-between items-center">
-      <h1 class="text-2xl font-bold">YT→MP3</h1>
-      <button id="theme-toggle" class="p-2 rounded-lg hover:bg-gray-200">🌙</button>
+      <h1 class="text-2xl font-bold">YOUTUBE TO MP3 CONVERTER</h1>
+      <button id="theme-toggle" class="p-2 rounded-lg hover:bg-gray-200 transition-colors">🌙</button>
     </div>
   </header>
 
   <!-- Main Content -->
   <main class="max-w-2xl mx-auto mt-12 p-4">
     <div class="bg-white p-8 rounded-lg shadow-lg">
-      <h2 class="text-xl mb-4 font-semibold">Convert YouTube to MP3</h2>
+      <h2 class="text-xl mb-4 font-semibold">Convert YouTube Videos to MP3</h2>
       <form id="convertForm" class="space-y-4">
         <input
           type="url"
           id="youtubeUrl"
-          placeholder="YouTube URL"
+          placeholder="Paste YouTube URL here..."
           required
-          class="w-full p-3 border rounded-lg focus:outline-indigo-500"
+          class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
         />
-        <select id="bitrate" class="w-full p-3 border rounded-lg focus:outline-indigo-500">
-          <option value="128">128 kbps</option>
-          <option value="192">192 kbps</option>
-          <option value="320" selected>320 kbps</option>
+        <select id="bitrate" class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+          <option value="128">128 kbps (Good Quality)</option>
+          <option value="192">192 kbps (High Quality)</option>
+          <option value="320" selected>320 kbps (Best Quality)</option>
         </select>
         <button
           type="submit"
-          class="w-full bg-indigo-600 text-white p-3 rounded-lg font-medium hover:bg-indigo-700"
+          class="w-full bg-indigo-600 text-white p-3 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Convert & Download
         </button>
       </form>
-      <div id="status" class="mt-4 text-center"></div>
+      <div id="status" class="mt-4 text-center text-sm"></div>
       <div id="result" class="mt-4 text-center"></div>
     </div>
 
     <!-- Monetization: Ad Banner Placeholder -->
     <div class="mt-8 text-center">
       <div class="inline-block bg-gray-200 p-4 rounded-lg">
-        <!-- Replace with your ad network code -->
-        <p class="text-sm text-gray-600">Advertisement</p>
-        <div id="ad-banner" class="w-72 h-24 bg-gray-300"></div>
+        <p class="text-sm text-gray-600 mb-2">Advertisement</p>
+        <div id="ad-banner" class="w-72 h-24 bg-gray-300 rounded flex items-center justify-center">
+          <span class="text-gray-500 text-sm">Your Ad Here</span>
+        </div>
       </div>
     </div>
   </main>
 
   <!-- Footer -->
   <footer class="mt-12 bg-white shadow-inner">
-    <div class="max-w-4xl mx-auto p-4 text-center text-sm text-gray-500">
-      © 2025 YT→MP3 Converter • <a href="/terms.html" class="underline">Terms</a> • <a href="/privacy.html" class="underline">Privacy</a>
+    <div class="max-w-4xl mx-auto p-6 text-center">
+      <p class="text-sm text-gray-500 mb-2">
+        © 2025 YT→MP3 Converter • 
+        <a href="/terms.html" class="underline hover:text-gray-700">Terms</a> • 
+        <a href="/privacy.html" class="underline hover:text-gray-700">Privacy</a>
+      </p>
+      <p class="text-xs text-gray-400">
+        High-quality MP3 conversion from YouTube videos
+      </p>
     </div>
   </footer>
 
