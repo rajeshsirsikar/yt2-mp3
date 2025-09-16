@@ -4,6 +4,8 @@ const { spawn, execFile } = require('child_process');
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 const path = require('path');
 const sanitize = require('sanitize-filename');
+const fs = require('fs');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -26,12 +28,44 @@ app.get('/', (req, res) => {
   res.json({ status: 'YouTube to MP3 API is running' });
 });
 
+function resolveCookieArgs() {
+  if (process.env.YTDLP_NO_COOKIES === '1') {
+    return [];
+  }
+
+  const explicit = process.env.YTDLP_COOKIES_FROM_BROWSER;
+  if (explicit) {
+    return ['--cookies-from-browser', explicit];
+  }
+
+  const home = os.homedir();
+  if (!home) {
+    return [];
+  }
+
+  const chromeConfig = path.join(home, '.config', 'google-chrome');
+  if (fs.existsSync(chromeConfig)) {
+    return ['--cookies-from-browser', 'chrome'];
+  }
+
+  const flatpakChrome = path.join(home, '.var', 'app', 'com.google.Chrome');
+  if (fs.existsSync(flatpakChrome)) {
+    return ['--cookies-from-browser', `chrome:${flatpakChrome}/`];
+  }
+
+  return [];
+}
+
+const browserCookieArgs = resolveCookieArgs();
+
 // Function to get video metadata using yt-dlp
 function getVideoInfo(url) {
   return new Promise((resolve, reject) => {
     const ytDlpExec = process.env.YTDLP_PATH || 'yt-dlp';
-    
-    execFile(ytDlpExec, ['-J', '--no-warnings', url], 
+
+    const args = ['-J', '--no-warnings', ...browserCookieArgs, url];
+
+    execFile(ytDlpExec, args,
       { maxBuffer: 10 * 1024 * 1024 }, 
       (error, stdout, stderr) => {
         if (error) {
@@ -97,7 +131,9 @@ app.post('/api/convert', async (req, res) => {
 
   // 1. Spawn yt-dlp to extract audio stream
   const ytDlpExec = process.env.YTDLP_PATH || 'yt-dlp';
-  const ytdlp = spawn(ytDlpExec, ['-f', 'bestaudio', '-o', '-', url], {
+  const ytdlpArgs = ['-f', 'bestaudio', '-o', '-', ...browserCookieArgs, url];
+
+  const ytdlp = spawn(ytDlpExec, ytdlpArgs, {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 

@@ -49,10 +49,10 @@ form.addEventListener('submit', async (e) => {
     a.remove();
     URL.revokeObjectURL(href);
     
-    setStatus(`âœ… Download started: ${fileName}`);
+    setStatus(` ✅ Download started: ${fileName}`);
   } catch (err) {
     console.error('Conversion error:', err);
-    setStatus(`âŒ ${err.message || 'Conversion failed'}`, true);
+    setStatus(`❌ ${err.message || 'Conversion failed'}`, true);
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
