@@ -74,21 +74,35 @@ async function ensureYtDlp() {
   }
 }
 
+function parseArgsEnv(name) {
+  const s = process.env[name];
+  if (!s) return [];
+  // naive split supporting quoted segments
+  const m = s.match(/(?:[^\s"]+|"[^"]*")+?/g);
+  return (m || []).map(t => t.replace(/^"|"$/g, ''));
+}
+
 function spawnYtDlpAudio(ytDlpPath, url) {
   // Stream best available audio to stdout
-  return spawn(ytDlpPath, [
-    '-f', 'bestaudio/best',
+  const defaultArgs = [
+    '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
     '-o', '-',
     '--no-playlist',
-    '--quiet',
-    '--no-warnings',
-    url
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    '--no-progress',
+    '--no-cache-dir',
+    '--geo-bypass',
+    '--force-ipv4',
+    '--no-warnings'
+  ];
+  const extra = parseArgsEnv('YTDLP_ARGS');
+  return spawn(ytDlpPath, [...defaultArgs, ...extra, url], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 async function getVideoInfoYtDlp(ytDlpPath, url) {
   return new Promise((resolve, reject) => {
-    execFile(ytDlpPath, ['-J', '--no-playlist', '--no-warnings', url], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+    const args = ['-J', '--no-playlist', '--no-warnings', '--geo-bypass', '--force-ipv4'];
+    const extra = parseArgsEnv('YTDLP_INFO_ARGS');
+    execFile(ytDlpPath, [...args, ...extra, url], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) return reject(err);
       try {
         const data = JSON.parse(stdout);
@@ -99,7 +113,10 @@ async function getVideoInfoYtDlp(ytDlpPath, url) {
           id: data.id
         });
       } catch (e) {
-        reject(e);
+        // include a hint of stderr for debugging
+        const hint = (stderr || '').toString().slice(0, 500);
+        const wrapped = new Error(`Failed to parse yt-dlp JSON${hint ? `: ${hint}` : ''}`);
+        reject(wrapped);
       }
     });
   });
@@ -171,10 +188,15 @@ app.post('/api/convert', async (req, res) => {
   if (ytDlpPath) {
     ytDlpProc = spawnYtDlpAudio(ytDlpPath, url);
     sourceStream = ytDlpProc.stdout;
-    ytDlpProc.stderr?.on('data', d => logger.debug({ ytDlp: d.toString() }));
+    let errBuf = '';
+    ytDlpProc.stderr?.on('data', d => { const s = d.toString(); errBuf += s; if (logger.levelVal <= 20) logger.debug({ ytDlp: s }); });
     ytDlpProc.once('error', err => onFatal(err, undefined, 'yt-dlp'));
     ytDlpProc.once('exit', code => {
-      if (!responded && code !== 0) onFatal(new Error('yt-dlp exited non-zero'), code, 'yt-dlp');
+      if (!responded && code !== 0) {
+        const snippet = (errBuf || '').split('\n').slice(-6).join('\n');
+        const err = new Error(`yt-dlp exited non-zero${snippet ? `: ${snippet}` : ''}`);
+        onFatal(err, code, 'yt-dlp');
+      }
     });
   } else {
     sourceStream = ytdl(url, {
