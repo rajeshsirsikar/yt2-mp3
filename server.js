@@ -1,73 +1,73 @@
 const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
-const ffmpeg = require('@ffmpeg-installer/ffmpeg');
+const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
-// CORS configuration for production
+// CORS configuration
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-serverbyt-domain.com'] 
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://your-serverbyt-domain.com']
     : ['http://localhost:3000']
 }));
 
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Health check endpoint
+// Health check
 app.get('/', (req, res) => {
   res.json({ status: 'YouTube to MP3 API is running' });
 });
 
-// Your existing /api/convert endpoint stays the same
 app.post('/api/convert', (req, res) => {
-  const { url, bitrate } = req.body;
-  console.log('Received convert request', { url, bitrate });
+  const { url, bitrate = 320 } = req.body;
+  console.log('Convert request', { url, bitrate });
 
-  // 1. Spawn yt-dlp to extract best audio URL
-  const ytdlp = spawn('yt-dlp', ['-f', 'bestaudio', '-o', '-', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // 1. yt-dlp extract
+  const ytdlp = spawn('yt-dlp', ['-f', 'bestaudio', '-o', '-', url], {
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
 
   ytdlp.on('error', err => {
-    console.error('yt-dlp spawn error:', err);
+    console.error('yt-dlp error:', err);
     return res.status(500).send('yt-dlp failed to start');
   });
-  ytdlp.stderr.on('data', data => console.error('yt-dlp stderr:', data.toString()));
-  ytdlp.on('exit', code => console.log('yt-dlp exited with code', code));
+  ytdlp.stderr.on('data', d => console.error('yt-dlp stderr:', d.toString()));
 
-  // 2. Pipe into FFmpeg to convert to MP3
-  const ffmpeg = spawn(ffmpegPath, [
+  // 2. ffmpeg convert
+  const ffmpegPath = ffmpegInstaller.path;
+  const ffmpegProc = spawn(ffmpegPath, [
     '-i', 'pipe:0',
     '-vn',
     '-acodec', 'libmp3lame',
     '-b:a', `${bitrate}k`,
     '-f', 'mp3',
     'pipe:1'
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+  ], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
 
-  ffmpeg.on('error', err => {
-    console.error('ffmpeg spawn error:', err);
+  ffmpegProc.on('error', err => {
+    console.error('ffmpeg error:', err);
     return res.status(500).send('FFmpeg failed to start');
   });
-  ffmpeg.stderr.on('data', data => console.error('ffmpeg stderr:', data.toString()));
-  ffmpeg.on('exit', code => console.log('ffmpeg exited with code', code));
+  ffmpegProc.stderr.on('data', d => console.error('ffmpeg stderr:', d.toString()));
 
   // 3. Pipe streams
-  ytdlp.stdout.pipe(ffmpeg.stdin);
-  ffmpeg.stdout.pipe(res);
+  ytdlp.stdout.pipe(ffmpegProc.stdin);
+  ffmpegProc.stdout.pipe(res);
 
-  // If client aborts, kill child processes
   req.on('close', () => {
-    console.warn('Client closed connection, killing processes');
+    console.warn('Client aborted; killing processes');
     ytdlp.kill('SIGKILL');
-    ffmpeg.kill('SIGKILL');
+    ffmpegProc.kill('SIGKILL');
   });
 });
 
-app.listen(process.env.PORT || 10000, () => console.log('API listening'));
-
+// Single listener
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
 });
