@@ -28,6 +28,19 @@ app.get('/', (req, res) => {
   res.json({ status: 'YouTube to MP3 API is running' });
 });
 
+function expandHomeSegments(spec = '') {
+  if (!spec.includes('~')) {
+    return spec;
+  }
+
+  const home = os.homedir();
+  if (!home) {
+    return spec;
+  }
+
+  return spec.replace(/(^|:)~(?=\/|$)/g, (_, prefix) => `${prefix}${home}`);
+}
+
 function resolveCookieArgs() {
   if (process.env.YTDLP_NO_COOKIES === '1') {
     return [];
@@ -35,7 +48,7 @@ function resolveCookieArgs() {
 
   const explicit = process.env.YTDLP_COOKIES_FROM_BROWSER;
   if (explicit) {
-    return ['--cookies-from-browser', explicit];
+    return ['--cookies-from-browser', expandHomeSegments(explicit)];
   }
 
   const home = os.homedir();
@@ -43,8 +56,22 @@ function resolveCookieArgs() {
     return [];
   }
 
+  const platform = process.platform;
+
+  if (platform === 'darwin') {
+    const macChrome = path.join(home, 'Library', 'Application Support', 'Google', 'Chrome');
+    if (fs.existsSync(macChrome)) {
+      return ['--cookies-from-browser', 'chrome'];
+    }
+  }
+
   const chromeConfig = path.join(home, '.config', 'google-chrome');
   if (fs.existsSync(chromeConfig)) {
+    return ['--cookies-from-browser', 'chrome'];
+  }
+
+  const chromeConfigStable = path.join(home, '.config', 'google-chrome-stable');
+  if (fs.existsSync(chromeConfigStable)) {
     return ['--cookies-from-browser', 'chrome'];
   }
 
@@ -57,6 +84,11 @@ function resolveCookieArgs() {
 }
 
 const browserCookieArgs = resolveCookieArgs();
+if (browserCookieArgs.length) {
+  console.log('yt-dlp cookies enabled via --cookies-from-browser %s', browserCookieArgs[1]);
+} else {
+  console.log('yt-dlp cookies not configured; restricted videos may fail');
+}
 
 // Function to get video metadata using yt-dlp
 function getVideoInfo(url) {

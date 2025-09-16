@@ -70,7 +70,7 @@ Notes:
 - Live streams / DRM / geo restrictions
   - Live/DRM content is not supported. Geo-blocked content may fail even with `--geo-bypass`.
 - Logged-in only / age-restricted videos
-  - The server automatically asks `yt-dlp` to reuse your Chrome cookies via `--cookies-from-browser`. On Linux it checks `~/.config/google-chrome` first; if you installed Chrome via Flatpak it falls back to `~/.var/app/com.google.Chrome/`. Override with `YTDLP_COOKIES_FROM_BROWSER` (e.g. `edge` or `chrome:/custom/path`). Set `YTDLP_NO_COOKIES=1` to disable cookie usage entirely.
+  - The server automatically asks `yt-dlp` to reuse your Chrome cookies via `--cookies-from-browser`. On macOS it looks for the standard Chrome profile under `~/Library/Application Support/Google/Chrome`; on Linux it checks `~/.config/google-chrome` and, if needed, the Flatpak profile `~/.var/app/com.google.Chrome/`. Override with `YTDLP_COOKIES_FROM_BROWSER` (e.g. `chrome:/custom/path`). You can use `~` in the override—it expands to the container user’s home. Set `YTDLP_NO_COOKIES=1` to disable cookie usage entirely.
 - Legal use
   - Use only for content you own or have permission to download; comply with platform Terms of Service.
 
