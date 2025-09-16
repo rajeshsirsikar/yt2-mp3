@@ -52,3 +52,10 @@ setStatus(err.message || 'Something went wrong.');
 btn.disabled = false;
 }
 });
+
+// Dark/Light Mode Toggle
+const themeToggle = document.getElementById('theme-toggle');
+themeToggle.addEventListener('click', () => {
+  document.documentElement.classList.toggle('dark');
+  themeToggle.textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+});

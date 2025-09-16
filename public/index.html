@@ -1,46 +1,67 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>YT → MP3 (320kbps)</title>
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
-  <body>
-    <main class="container">
-      <h1>Convert YouTube to MP3</h1>
-      <p class="sub">High-quality MP3 (up to 320 kbps)</p>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube→MP3 Converter</title>
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="bg-gray-50 text-gray-800">
+  <!-- Hero -->
+  <header class="bg-white shadow-md">
+    <div class="max-w-4xl mx-auto p-4 flex justify-between items-center">
+      <h1 class="text-2xl font-bold">YT→MP3</h1>
+      <button id="theme-toggle" class="p-2 rounded-lg hover:bg-gray-200">🌙</button>
+    </div>
+  </header>
 
-      <form id="convert-form">
-        <label for="url">YouTube URL</label>
-        <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." required />
-
-        <label for="bitrate">Bitrate (kbps)</label>
-        <select id="bitrate" name="bitrate">
-          <option value="320" selected>320</option>
-          <option value="256">256</option>
-          <option value="192">192</option>
-          <option value="128">128</option>
-          <option value="96">96</option>
-          <option value="64">64</option>
+  <!-- Main Content -->
+  <main class="max-w-2xl mx-auto mt-12 p-4">
+    <div class="bg-white p-8 rounded-lg shadow-lg">
+      <h2 class="text-xl mb-4 font-semibold">Convert YouTube to MP3</h2>
+      <form id="convertForm" class="space-y-4">
+        <input
+          type="url"
+          id="youtubeUrl"
+          placeholder="YouTube URL"
+          required
+          class="w-full p-3 border rounded-lg focus:outline-indigo-500"
+        />
+        <select id="bitrate" class="w-full p-3 border rounded-lg focus:outline-indigo-500">
+          <option value="128">128 kbps</option>
+          <option value="192">192 kbps</option>
+          <option value="320" selected>320 kbps</option>
         </select>
-
-        <button type="submit">Convert & Download</button>
+        <button
+          type="submit"
+          class="w-full bg-indigo-600 text-white p-3 rounded-lg font-medium hover:bg-indigo-700"
+        >
+          Convert & Download
+        </button>
       </form>
+      <div id="status" class="mt-4 text-center"></div>
+      <div id="result" class="mt-4 text-center"></div>
+    </div>
 
-      <details style="margin-top:16px">
-        <summary>Advanced (optional): Use your own YouTube cookies</summary>
-        <p class="note">Paste a Netscape-format cookies.txt for youtube.com. Used only for this request; not stored.</p>
-        <textarea id="cookies" rows="5" style="width:100%;padding:12px 14px;background:#0f1117;color:#e9eef7;border:1px solid #2b2f3a;border-radius:10px" placeholder="# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t..."></textarea>
-      </details>
+    <!-- Monetization: Ad Banner Placeholder -->
+    <div class="mt-8 text-center">
+      <div class="inline-block bg-gray-200 p-4 rounded-lg">
+        <!-- Replace with your ad network code -->
+        <p class="text-sm text-gray-600">Advertisement</p>
+        <div id="ad-banner" class="w-72 h-24 bg-gray-300"></div>
+      </div>
+    </div>
+  </main>
 
-      <p class="note">
-        Use only for content you own or have permission to download. Respect the source platform’s Terms of Service.
-      </p>
+  <!-- Footer -->
+  <footer class="mt-12 bg-white shadow-inner">
+    <div class="max-w-4xl mx-auto p-4 text-center text-sm text-gray-500">
+      © 2025 YT→MP3 Converter • <a href="/terms.html" class="underline">Terms</a> • <a href="/privacy.html" class="underline">Privacy</a>
+    </div>
+  </footer>
 
-      <div id="status" class="status"></div>
-    </main>
-
-    <script src="/app.js"></script>
-  </body>
-  </html>
+  <script src="app.js"></script>
+</body>
+</html>
