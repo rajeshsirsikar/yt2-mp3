@@ -59,32 +59,20 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-// Dark/Light Mode Toggle - Fixed implementation
+// Dark/Light Mode Toggle - use data-color-scheme to match CSS
 const themeToggle = document.getElementById('theme-toggle');
 
-// Check for saved theme preference or default to light mode
-const currentTheme = localStorage.getItem('theme') || 'light';
-if (currentTheme === 'dark') {
-  document.documentElement.classList.add('dark');
-  themeToggle.textContent = 'â˜€ï¸';
-} else {
-  themeToggle.textContent = 'ðŸŒ™';
-}
+// Initialize from saved preference (default: light)
+const savedTheme = localStorage.getItem('theme') || 'light';
+document.documentElement.setAttribute('data-color-scheme', savedTheme);
+themeToggle.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
 
 themeToggle.addEventListener('click', () => {
-  const isDark = document.documentElement.classList.contains('dark');
-  
-  if (isDark) {
-    // Switch to light mode
-    document.documentElement.classList.remove('dark');
-    themeToggle.textContent = 'ðŸŒ™';
-    localStorage.setItem('theme', 'light');
-  } else {
-    // Switch to dark mode
-    document.documentElement.classList.add('dark');
-    themeToggle.textContent = 'â˜€ï¸';
-    localStorage.setItem('theme', 'dark');
-  }
+  const current = document.documentElement.getAttribute('data-color-scheme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-color-scheme', next);
+  themeToggle.textContent = next === 'dark' ? '☀️' : '🌙';
+  localStorage.setItem('theme', next);
 });
 
 // Add some UI enhancements
