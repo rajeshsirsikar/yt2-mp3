@@ -10,7 +10,10 @@ const PORT = process.env.PORT || 10000;
 // CORS configuration
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? ['https://yt2-mp3.com']
+    ? [
+        'https://yt2-mp3.com',
+        'https://www.yt2-mp3.com'
+      ]
     : ['http://localhost:3000']
 }));
 
