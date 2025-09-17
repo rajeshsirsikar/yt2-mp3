@@ -56,11 +56,25 @@ If you prefer not to run yt-dlp/ffmpeg yourself, you can switch the backend to c
 - `RAPIDAPI_BASE_URL` — Full endpoint URL that accepts a `url` query param and returns JSON with a downloadable MP3 link. Example: `https://<your-rapidapi-endpoint>?url=` (the app appends the video URL)
 - `RAPIDAPI_KEY` — Your RapidAPI key
 - `RAPIDAPI_HOST` — Optional; if your API requires `X-RapidAPI-Host`
+- `RAPIDAPI_METHOD` — Optional override (`GET` or `POST`), defaults to `POST`
+
+Example (Tube-MP3 RapidAPI endpoint):
+
+```env
+CONVERTER_PROVIDER=rapidapi
+RAPIDAPI_BASE_URL=https://tube-mp31.p.rapidapi.com/api/json
+RAPIDAPI_HOST=tube-mp31.p.rapidapi.com
+RAPIDAPI_KEY=<your-key>
+```
+
+This endpoint expects a `videoId` (the 11-character YouTube ID). The server extracts it automatically from standard YouTube URLs before calling RapidAPI.
 
 The server will:
 - Call the RapidAPI endpoint with the YouTube URL
 - Parse a common field (`url`, `link`, `download_url`, etc.) for the MP3 link
 - Stream the resulting MP3 back to the client with an attachment filename
+
+When `CONVERTER_PROVIDER=rapidapi` is set, the local `play-dl` + `ffmpeg` pipeline is bypassed entirely, so no YouTube cookies are required—success depends on the third-party API.
 
 Notes:
 - You must consult the API’s docs for the exact endpoint and field names.

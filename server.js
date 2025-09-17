@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
+const { Readable } = require('stream');
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 const playdl = require('play-dl');
 const path = require('path');
@@ -10,6 +11,8 @@ const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+const PROVIDER = (process.env.CONVERTER_PROVIDER || '').toLowerCase();
+const USING_RAPIDAPI = PROVIDER === 'rapidapi';
 
 // CORS configuration
 app.use(cors({
@@ -81,6 +84,11 @@ function loadCookieHeaderFromFile(filePath) {
 }
 
 function configurePlayDlTokens() {
+  if (USING_RAPIDAPI) {
+    console.log('Skipping play-dl cookie configuration because CONVERTER_PROVIDER=rapidapi');
+    return;
+  }
+
   if (process.env.YTDLP_NO_COOKIES === '1') {
     console.log('play-dl cookies disabled via YTDLP_NO_COOKIES');
     return;
@@ -138,6 +146,166 @@ async function getVideoInfo(url) {
   };
 }
 
+function extractVideoIdFromUrl(url) {
+  if (!url) {
+    return '';
+  }
+
+  if (/^[a-zA-Z0-9_-]{11}$/.test(url)) {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+
+    if (host === 'youtu.be') {
+      return parsed.pathname.replace(/^\//, '');
+    }
+
+    const vParam = parsed.searchParams.get('v');
+    if (vParam) {
+      return vParam;
+    }
+
+    const shortsMatch = parsed.pathname.match(/\/shorts\/([^/?]+)/i);
+    if (shortsMatch) {
+      return shortsMatch[1];
+    }
+
+    const embedMatch = parsed.pathname.match(/\/embed\/([^/?]+)/i);
+    if (embedMatch) {
+      return embedMatch[1];
+    }
+  } catch (error) {
+    console.warn('Failed to parse URL for video ID extraction:', error?.message || error);
+  }
+
+  return '';
+}
+
+function findDownloadUrl(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  if (typeof payload === 'string') {
+    return /^https?:\/\//i.test(payload) ? payload : null;
+  }
+
+  if (Array.isArray(payload)) {
+    for (const entry of payload) {
+      const found = findDownloadUrl(entry);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  if (typeof payload === 'object') {
+    const preferredKeys = [
+      'download_url',
+      'downloadUrl',
+      'download',
+      'mp3',
+      'mp3_url',
+      'mp3Url',
+      'url',
+      'link',
+      'audio',
+      'result'
+    ];
+
+    for (const key of preferredKeys) {
+      if (Object.prototype.hasOwnProperty.call(payload, key)) {
+        const found = findDownloadUrl(payload[key]);
+        if (found) {
+          return found;
+        }
+      }
+    }
+
+    for (const value of Object.values(payload)) {
+      const found = findDownloadUrl(value);
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function streamViaRapidApi({ url, res, sanitizedFilename }) {
+  const fetchImpl = globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('Global fetch is not available; upgrade to Node 18+ or install a fetch polyfill.');
+  }
+
+  const apiKey = process.env.RAPIDAPI_KEY;
+  if (!apiKey) {
+    throw new Error('RAPIDAPI_KEY is not configured');
+  }
+
+  const videoId = extractVideoIdFromUrl(url);
+  if (!videoId) {
+    throw new Error('Unable to determine videoId for RapidAPI converter');
+  }
+
+  const endpoint = process.env.RAPIDAPI_BASE_URL || 'https://tube-mp31.p.rapidapi.com/api/json';
+  const host = process.env.RAPIDAPI_HOST || 'tube-mp31.p.rapidapi.com';
+  const method = (process.env.RAPIDAPI_METHOD || 'POST').toUpperCase();
+
+  let requestUrl = endpoint;
+  const headers = {
+    'x-rapidapi-key': apiKey,
+    'x-rapidapi-host': host
+  };
+  const init = { method, headers };
+
+  if (method === 'GET') {
+    const urlObject = new URL(endpoint);
+    urlObject.searchParams.set('videoId', videoId);
+    requestUrl = urlObject.toString();
+  } else {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify({ videoId });
+  }
+
+  const response = await fetchImpl(requestUrl, init);
+  if (!response.ok) {
+    throw new Error(`RapidAPI responded with HTTP ${response.status}`);
+  }
+
+  const json = await response.json();
+  const downloadUrl = findDownloadUrl(json);
+  if (!downloadUrl) {
+    throw new Error('RapidAPI response did not include a downloadable URL');
+  }
+
+  const mp3Response = await fetchImpl(downloadUrl);
+  if (!mp3Response.ok || !mp3Response.body) {
+    throw new Error(`RapidAPI download failed with HTTP ${mp3Response.status}`);
+  }
+
+  const contentType = mp3Response.headers.get('content-type') || 'audio/mpeg';
+  const contentLength = mp3Response.headers.get('content-length');
+
+  res.setHeader('Content-Type', contentType.includes('audio') ? contentType : 'audio/mpeg');
+  res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
+  if (contentLength) {
+    res.setHeader('Content-Length', contentLength);
+  }
+
+  const nodeStream = Readable.fromWeb(mp3Response.body);
+  nodeStream.on('error', error => {
+    console.error('RapidAPI stream error:', error);
+    res.destroy(error);
+  });
+  nodeStream.pipe(res);
+}
+
 function extractErrorMessage(error, fallback) {
   if (!error) {
     return fallback;
@@ -185,6 +353,21 @@ app.post('/api/convert', async (req, res) => {
 
   const sanitizedFilename = sanitize(baseFilename) + '.mp3';
   console.log('Generated filename:', sanitizedFilename);
+
+  if (USING_RAPIDAPI) {
+    try {
+      await streamViaRapidApi({ url, res, sanitizedFilename });
+    } catch (error) {
+      console.error('RapidAPI conversion error:', error);
+      const message = extractErrorMessage(error, 'Failed to convert video via RapidAPI');
+      if (!res.headersSent) {
+        res.status(502).json({ error: message });
+      } else {
+        res.destroy(new Error(message));
+      }
+    }
+    return;
+  }
 
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
