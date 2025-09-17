@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
-const { spawn, execFile } = require('child_process');
+const { spawn } = require('child_process');
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+const playdl = require('play-dl');
 const path = require('path');
 const sanitize = require('sanitize-filename');
 const fs = require('fs');
@@ -41,100 +42,121 @@ function expandHomeSegments(spec = '') {
   return spec.replace(/(^|:)~(?=\/|$)/g, (_, prefix) => `${prefix}${home}`);
 }
 
-function resolveCookieArgs() {
-  if (process.env.YTDLP_NO_COOKIES === '1') {
-    return [];
-  }
+function loadCookieHeaderFromFile(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const cookies = new Map();
 
-  const explicit = process.env.YTDLP_COOKIES_FROM_BROWSER;
-  if (explicit) {
-    return ['--cookies-from-browser', expandHomeSegments(explicit)];
-  }
-
-  const cookieFile = process.env.YTDLP_COOKIES_FILE;
-  if (cookieFile) {
-    const expanded = expandHomeSegments(cookieFile);
-    const resolved = path.isAbsolute(expanded) ? expanded : path.resolve(expanded);
-    if (fs.existsSync(resolved)) {
-      return ['--cookies', resolved];
-    }
-    console.warn('YTDLP_COOKIES_FILE was set but not found at %s', resolved);
-  }
-
-  const home = os.homedir();
-  if (!home) {
-    return [];
-  }
-
-  const platform = process.platform;
-
-  if (platform === 'darwin') {
-    const macChrome = path.join(home, 'Library', 'Application Support', 'Google', 'Chrome');
-    if (fs.existsSync(macChrome)) {
-      return ['--cookies-from-browser', 'chrome'];
-    }
-  }
-
-  const chromeConfig = path.join(home, '.config', 'google-chrome');
-  if (fs.existsSync(chromeConfig)) {
-    return ['--cookies-from-browser', 'chrome'];
-  }
-
-  const chromeConfigStable = path.join(home, '.config', 'google-chrome-stable');
-  if (fs.existsSync(chromeConfigStable)) {
-    return ['--cookies-from-browser', 'chrome'];
-  }
-
-  const flatpakChrome = path.join(home, '.var', 'app', 'com.google.Chrome');
-  if (fs.existsSync(flatpakChrome)) {
-    return ['--cookies-from-browser', `chrome:${flatpakChrome}/`];
-  }
-
-  return [];
-}
-
-const cookieArgs = resolveCookieArgs();
-if (cookieArgs.length) {
-  console.log('yt-dlp cookies enabled via %s %s', cookieArgs[0], cookieArgs[1]);
-} else {
-  console.log('yt-dlp cookies not configured; restricted videos may fail');
-}
-
-// Function to get video metadata using yt-dlp
-function getVideoInfo(url) {
-  return new Promise((resolve, reject) => {
-    const ytDlpExec = process.env.YTDLP_PATH || 'yt-dlp';
-
-    const args = ['-J', '--no-warnings', ...cookieArgs, url];
-
-    execFile(ytDlpExec, args,
-      { maxBuffer: 10 * 1024 * 1024 }, 
-      (error, stdout, stderr) => {
-        if (error) {
-          console.error('yt-dlp metadata error:', error);
-          reject(error);
-          return;
-        }
-        
-        try {
-          const info = JSON.parse(stdout);
-          resolve({
-            title: info.title || 'Unknown',
-            uploader: info.uploader || info.channel || 'Unknown',
-            id: info.id || '',
-            duration: info.duration || 0
-          });
-        } catch (parseError) {
-          console.error('Failed to parse yt-dlp JSON:', parseError);
-          reject(parseError);
-        }
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue;
       }
-    );
-  });
+
+      const parts = trimmed.split('\t');
+      if (parts.length < 7) {
+        continue;
+      }
+
+      const name = parts[5];
+      const value = parts[6];
+      if (!name) {
+        continue;
+      }
+
+      cookies.set(name, value);
+    }
+
+    if (!cookies.size) {
+      return null;
+    }
+
+    return Array.from(cookies.entries())
+      .map(([name, value]) => `${name}=${value}`)
+      .join('; ');
+  } catch (error) {
+    console.warn('Failed to read cookie file %s: %s', filePath, error.message);
+    return null;
+  }
+}
+
+function configurePlayDlTokens() {
+  if (process.env.YTDLP_NO_COOKIES === '1') {
+    console.log('play-dl cookies disabled via YTDLP_NO_COOKIES');
+    return;
+  }
+
+  const inlineCookie = process.env.PLAYDL_YOUTUBE_COOKIE
+    || process.env.YOUTUBE_COOKIE_HEADER
+    || process.env.YTDLP_COOKIE_HEADER;
+
+  if (inlineCookie) {
+    playdl.setToken({ youtube: { cookie: inlineCookie } });
+    console.log('play-dl cookies configured from inline header');
+    return;
+  }
+
+  const cookieFileEnv = process.env.PLAYDL_COOKIES_FILE || process.env.YTDLP_COOKIES_FILE;
+  if (!cookieFileEnv) {
+    console.log('play-dl cookies not configured; restricted videos may fail');
+    if (process.env.YTDLP_COOKIES_FROM_BROWSER) {
+      console.log('YTDLP_COOKIES_FROM_BROWSER is set, but automatic browser extraction is not supported with play-dl. Export a Netscape cookie jar and point PLAYDL_COOKIES_FILE to it.');
+    }
+    return;
+  }
+
+  const expanded = expandHomeSegments(cookieFileEnv);
+  const resolved = path.isAbsolute(expanded) ? expanded : path.resolve(expanded);
+  if (!fs.existsSync(resolved)) {
+    console.warn('Cookie file not found at %s', resolved);
+    return;
+  }
+
+  const header = loadCookieHeaderFromFile(resolved);
+  if (!header) {
+    console.warn('Cookie file at %s did not yield any cookies', resolved);
+    return;
+  }
+
+  playdl.setToken({ youtube: { cookie: header } });
+  console.log('play-dl cookies configured from %s', resolved);
+}
+
+configurePlayDlTokens();
+
+// Function to get video metadata using play-dl
+async function getVideoInfo(url) {
+  const info = await playdl.video_basic_info(url);
+  const details = info?.video_details || {};
+  const uploader = details.channel?.name || details.channel || details.author?.name || '';
+
+  return {
+    title: details.title || 'Unknown',
+    uploader: uploader || 'Unknown',
+    id: details.id || '',
+    duration: Number(details.durationInSec) || 0
+  };
+}
+
+function extractErrorMessage(error, fallback) {
+  if (!error) {
+    return fallback;
+  }
+
+  const message = String(error.message || error);
+  if (/sign in to confirm/i.test(message)) {
+    return 'YouTube requires authentication for this video. Provide cookies via PLAYDL_YOUTUBE_COOKIE or PLAYDL_COOKIES_FILE.';
+  }
+
+  if (/private video/i.test(message)) {
+    return 'This video is private and cannot be downloaded.';
+  }
+
+  return fallback;
 }
 
 app.post('/api/convert', async (req, res) => {
-  const { url, bitrate = 320 } = req.body;
+  const { url, bitrate = 320 } = req.body || {};
   console.log('Convert request', { url, bitrate });
 
   // Validate URL
@@ -146,56 +168,61 @@ app.post('/api/convert', async (req, res) => {
 
   let videoInfo;
   try {
-    // Get video metadata first
     videoInfo = await getVideoInfo(url);
     console.log('Video info:', videoInfo);
   } catch (error) {
-    console.warn('Failed to get video info, using fallback filename');
+    console.warn('Failed to get video info, using fallback filename', error?.message || error);
     videoInfo = { title: 'audio', uploader: '', id: '' };
   }
 
-  // Create sanitized filename
   const title = videoInfo.title || 'audio';
   const uploader = videoInfo.uploader || '';
 
-  // Create filename: "Title - Artist.mp3"
   let baseFilename = title;
   if (uploader) {
     baseFilename += ` - ${uploader}`;
   }
-  
+
   const sanitizedFilename = sanitize(baseFilename) + '.mp3';
   console.log('Generated filename:', sanitizedFilename);
 
-  // Set response headers for streaming MP3
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
 
-  // 1. Spawn yt-dlp to extract audio stream
-  const ytDlpExec = process.env.YTDLP_PATH || 'yt-dlp';
-  const ytdlpArgs = ['-f', 'bestaudio', '-o', '-', ...cookieArgs, url];
+  let streamInfo;
+  try {
+    streamInfo = await playdl.stream(url, { quality: 2 });
+  } catch (error) {
+    console.error('play-dl stream error:', error);
+    const message = extractErrorMessage(error, 'Failed to retrieve audio stream from YouTube');
+    return res.status(500).json({ error: message });
+  }
 
-  const ytdlp = spawn(ytDlpExec, ytdlpArgs, {
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  const audioStream = streamInfo.stream;
+  const streamType = (streamInfo.type || '').toString().toLowerCase();
 
   let finished = false;
   let startedStreaming = false;
-  let ytdlpStderr = '';
   let ffmpegStderr = '';
   let ffmpegProc;
+
+  const cleanup = () => {
+    if (ffmpegProc) {
+      try {
+        ffmpegProc.kill('SIGKILL');
+      } catch {}
+    }
+    if (audioStream && !audioStream.destroyed) {
+      audioStream.destroy();
+    }
+  };
 
   const failRequest = (message) => {
     if (finished) {
       return;
     }
     finished = true;
-    try { ytdlp.kill('SIGKILL'); } catch {}
-    try {
-      if (ffmpegProc) {
-        ffmpegProc.kill('SIGKILL');
-      }
-    } catch {}
+    cleanup();
 
     if (!res.headersSent) {
       res.status(500).json({ error: message });
@@ -204,19 +231,17 @@ app.post('/api/convert', async (req, res) => {
     }
   };
 
-  ytdlp.on('error', err => {
-    console.error('yt-dlp failed to start:', err);
-    failRequest('yt-dlp failed to start');
-  });
-  ytdlp.stderr.on('data', chunk => {
-    const text = chunk.toString();
-    ytdlpStderr += text;
-    console.error('yt-dlp stderr:', text);
+  audioStream.on('error', err => {
+    console.error('Audio stream error:', err);
+    failRequest('The YouTube audio stream failed.');
   });
 
-  // 2. Spawn FFmpeg to convert the piped input to MP3
   const ffmpegPath = ffmpegInstaller.path;
-  ffmpegProc = spawn(ffmpegPath, [
+  const ffmpegArgs = [];
+  if (streamType.includes('opus')) {
+    ffmpegArgs.push('-f', 'opus');
+  }
+  ffmpegArgs.push(
     '-i', 'pipe:0',
     '-vn',
     '-acodec', 'libmp3lame',
@@ -225,7 +250,9 @@ app.post('/api/convert', async (req, res) => {
     '-metadata', `artist=${uploader}`,
     '-f', 'mp3',
     'pipe:1'
-  ], {
+  );
+
+  ffmpegProc = spawn(ffmpegPath, ffmpegArgs, {
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
@@ -233,38 +260,18 @@ app.post('/api/convert', async (req, res) => {
     console.error('FFmpeg failed to start:', err);
     failRequest('FFmpeg failed to start');
   });
+
   ffmpegProc.stderr.on('data', chunk => {
     const text = chunk.toString();
     ffmpegStderr += text;
     console.error('FFmpeg stderr:', text);
   });
 
-  // 3. Pipe yt-dlp output into ffmpeg stdin, then pipe ffmpeg stdout into response
-  ytdlp.stdout.pipe(ffmpegProc.stdin);
+  audioStream.pipe(ffmpegProc.stdin);
   ffmpegProc.stdout.pipe(res);
 
   ffmpegProc.stdout.once('data', () => {
     startedStreaming = true;
-  });
-
-  const interpretYtDlpError = () => {
-    const combined = ytdlpStderr.trim();
-    if (!combined) {
-      return 'yt-dlp exited with an unknown error.';
-    }
-    if (combined.includes('Sign in to confirm you’re not a bot')) {
-      return 'YouTube requires authentication for this video. Provide cookies via YTDLP_COOKIES_FROM_BROWSER or YTDLP_COOKIES_FILE.';
-    }
-    return combined.split('\n').pop();
-  };
-
-  ytdlp.on('close', code => {
-    if (code === 0 || finished) {
-      return;
-    }
-    const reason = interpretYtDlpError();
-    console.error('yt-dlp exited with code %s: %s', code, reason);
-    failRequest(reason);
   });
 
   ffmpegProc.on('close', code => {
@@ -284,21 +291,16 @@ app.post('/api/convert', async (req, res) => {
     finished = true;
   });
 
-  // Cleanup if client aborts
   req.on('close', () => {
     if (finished) {
       return;
     }
     finished = true;
-    console.warn('Client aborted; terminating child processes');
-    ytdlp.kill('SIGKILL');
-    if (ffmpegProc) {
-      ffmpegProc.kill('SIGKILL');
-    }
+    console.warn('Client aborted; terminating stream');
+    cleanup();
   });
 });
 
-// Single listener
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });

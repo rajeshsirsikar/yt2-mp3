@@ -16,9 +16,7 @@ Important: Use only for content you own or have explicit permission to download.
 - Node.js 18+
 - Network access to fetch NPM deps and video/audio streams
 - `ffmpeg` binary (bundled via `@ffmpeg-installer/ffmpeg`)
-- Optional but recommended: `yt-dlp` system binary for robustness
-
-The app bundles `ffmpeg`. For fetching audio, it prefers a system `yt-dlp` if available (more resilient to YouTube changes), and falls back to `ytdl-core` otherwise. If `yt-dlp` is not on your PATH, the server attempts to auto-download a local binary on first use into `bin/yt-dlp` via `yt-dlp-wrap`.
+- No additional binaries are required; YouTube audio is fetched through [`play-dl`](https://github.com/play-dl/play-dl).
 
 ## Setup
 
@@ -31,17 +29,24 @@ npm run dev   # or: npm start
 ## How it works
 
 - Backend (`server.js`) exposes `POST /api/convert` accepting `{ url, bitrate }`.
-- It fetches video info with `yt-dlp -J` to build a safe filename and metadata.
-- It then streams best available audio from `yt-dlp` to `ffmpeg`, encoding to MP3 at the selected bitrate and streaming to the client as a download.
+- It fetches basic video info with `play-dl` to build a safe filename and metadata.
+- It then streams the best available audio through `play-dl`, pipes it into `ffmpeg`, encodes to MP3 at the selected bitrate, and streams the result back to the client.
 
 ## Notes
 
 - Bitrate accepted range: 64–320 kbps (default 320).
-- Install `yt-dlp` to avoid occasional `ytdl-core` breakages (or rely on auto-download):
-  - macOS (Homebrew): `brew install yt-dlp`
-  - Python: `pipx install yt-dlp` or `pip3 install --user yt-dlp` and ensure it’s on `PATH`.
-  - Auto-download: first request may take longer while the binary downloads into `bin/`.
 - No files are written to disk; everything is streamed and piped.
+- Age-restricted videos require cookies—see the next section.
+
+
+## Cookies and restricted videos
+
+- Set `PLAYDL_YOUTUBE_COOKIE` to the exact `Cookie` header captured from an authenticated YouTube request.
+- Or export a Netscape cookie jar (e.g., via the “Get cookies.txt” browser extension) and point `PLAYDL_COOKIES_FILE` to it (supports `~`).
+- Legacy variables `YTDLP_COOKIES_FILE` and `YTDLP_COOKIE_HEADER` are still honoured for backwards compatibility.
+- Set `YTDLP_NO_COOKIES=1` to disable cookie usage and force public-only behaviour.
+
+When cookies are missing or expired, age-restricted videos fail with a clear error explaining how to provide authentication.
 
 ## Using a Hosted Converter API (RapidAPI)
 
@@ -64,13 +69,13 @@ Notes:
 ## FAQ / Limits (Public Hosting)
 
 - Some videos return “Sign in to confirm you’re not a bot” or are private/members‑only.
-  - Public instances do not use user cookies. Such videos will return a 403 with a clear message.
+  - Provide valid cookies (see above) to access them; otherwise the API returns a 403-style JSON error.
 - Rate limiting / 429 from YouTube
   - The API has basic per-IP rate limiting. If YouTube rate limits the backend, the API returns 429. Try later.
 - Live streams / DRM / geo restrictions
-  - Live/DRM content is not supported. Geo-blocked content may fail even with `--geo-bypass`.
+  - Live/DRM content is not supported. Geo-blocked content is likely to fail.
 - Logged-in only / age-restricted videos
-  - The server automatically asks `yt-dlp` to reuse your Chrome cookies via `--cookies-from-browser`. On macOS it looks for the standard Chrome profile under `~/Library/Application Support/Google/Chrome`; on Linux it checks `~/.config/google-chrome` and, if needed, the Flatpak profile `~/.var/app/com.google.Chrome/`. Override with `YTDLP_COOKIES_FROM_BROWSER` (e.g. `chrome:/custom/path`). You can use `~` in the override—it expands to the container user’s home. Alternatively, export a Netscape-format cookie jar and point `YTDLP_COOKIES_FILE` at it to pass `--cookies`. Set `YTDLP_NO_COOKIES=1` to disable cookie usage entirely.
+  - Supply cookies as described above. Automatic browser extraction is not available in this mode.
 - Legal use
   - Use only for content you own or have permission to download; comply with platform Terms of Service.
 
