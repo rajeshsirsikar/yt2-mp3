@@ -1,11 +1,10 @@
 const express = require('express');
 const cors = require('cors');
-const { spawn, execFile } = require('child_process');
+const { spawn } = require('child_process');
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+const playdl = require('play-dl');
 const path = require('path');
 const sanitize = require('sanitize-filename');
-const fs = require('fs');
-const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -28,99 +27,18 @@ app.get('/', (req, res) => {
   res.json({ status: 'YouTube to MP3 API is running' });
 });
 
-function expandHomeSegments(spec = '') {
-  if (!spec.includes('~')) {
-    return spec;
-  }
+// Function to get video metadata using play-dl
+async function getVideoInfo(url) {
+  const info = await playdl.video_basic_info(url);
+  const details = info?.video_details || {};
+  const uploader = details.channel?.name || details.channel || details.author?.name || '';
 
-  const home = os.homedir();
-  if (!home) {
-    return spec;
-  }
-
-  return spec.replace(/(^|:)~(?=\/|$)/g, (_, prefix) => `${prefix}${home}`);
-}
-
-function resolveCookieArgs() {
-  if (process.env.YTDLP_NO_COOKIES === '1') {
-    return [];
-  }
-
-  const explicit = process.env.YTDLP_COOKIES_FROM_BROWSER;
-  if (explicit) {
-    return ['--cookies-from-browser', expandHomeSegments(explicit)];
-  }
-
-  const home = os.homedir();
-  if (!home) {
-    return [];
-  }
-
-  const platform = process.platform;
-
-  if (platform === 'darwin') {
-    const macChrome = path.join(home, 'Library', 'Application Support', 'Google', 'Chrome');
-    if (fs.existsSync(macChrome)) {
-      return ['--cookies-from-browser', 'chrome'];
-    }
-  }
-
-  const chromeConfig = path.join(home, '.config', 'google-chrome');
-  if (fs.existsSync(chromeConfig)) {
-    return ['--cookies-from-browser', 'chrome'];
-  }
-
-  const chromeConfigStable = path.join(home, '.config', 'google-chrome-stable');
-  if (fs.existsSync(chromeConfigStable)) {
-    return ['--cookies-from-browser', 'chrome'];
-  }
-
-  const flatpakChrome = path.join(home, '.var', 'app', 'com.google.Chrome');
-  if (fs.existsSync(flatpakChrome)) {
-    return ['--cookies-from-browser', `chrome:${flatpakChrome}/`];
-  }
-
-  return [];
-}
-
-const browserCookieArgs = resolveCookieArgs();
-if (browserCookieArgs.length) {
-  console.log('yt-dlp cookies enabled via --cookies-from-browser %s', browserCookieArgs[1]);
-} else {
-  console.log('yt-dlp cookies not configured; restricted videos may fail');
-}
-
-// Function to get video metadata using yt-dlp
-function getVideoInfo(url) {
-  return new Promise((resolve, reject) => {
-    const ytDlpExec = process.env.YTDLP_PATH || 'yt-dlp';
-
-    const args = ['-J', '--no-warnings', ...browserCookieArgs, url];
-
-    execFile(ytDlpExec, args,
-      { maxBuffer: 10 * 1024 * 1024 }, 
-      (error, stdout, stderr) => {
-        if (error) {
-          console.error('yt-dlp metadata error:', error);
-          reject(error);
-          return;
-        }
-        
-        try {
-          const info = JSON.parse(stdout);
-          resolve({
-            title: info.title || 'Unknown',
-            uploader: info.uploader || info.channel || 'Unknown',
-            id: info.id || '',
-            duration: info.duration || 0
-          });
-        } catch (parseError) {
-          console.error('Failed to parse yt-dlp JSON:', parseError);
-          reject(parseError);
-        }
-      }
-    );
-  });
+  return {
+    title: details.title || 'Unknown',
+    uploader: uploader || 'Unknown',
+    id: details.id || '',
+    duration: Number(details.durationInSec) || 0
+  };
 }
 
 app.post('/api/convert', async (req, res) => {
@@ -161,25 +79,58 @@ app.post('/api/convert', async (req, res) => {
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
 
-  // 1. Spawn yt-dlp to extract audio stream
-  const ytDlpExec = process.env.YTDLP_PATH || 'yt-dlp';
-  const ytdlpArgs = ['-f', 'bestaudio', '-o', '-', ...browserCookieArgs, url];
+  let streamInfo;
+  try {
+    streamInfo = await playdl.stream(url, { quality: 2 });
+  } catch (error) {
+    console.error('play-dl stream error:', error);
+    return res.status(500).json({ error: 'Failed to retrieve audio stream from YouTube' });
+  }
 
-  const ytdlp = spawn(ytDlpExec, ytdlpArgs, {
-    stdio: ['ignore', 'pipe', 'pipe']
+  const audioStream = streamInfo.stream;
+  const streamType = (streamInfo.type || '').toString().toLowerCase();
+
+  let finished = false;
+  let startedStreaming = false;
+  let ffmpegStderr = '';
+  let ffmpegProc;
+
+  const cleanup = () => {
+    if (ffmpegProc) {
+      try {
+        ffmpegProc.kill('SIGKILL');
+      } catch {}
+    }
+    if (audioStream && !audioStream.destroyed) {
+      audioStream.destroy();
+    }
+  };
+
+  const failRequest = (message) => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    cleanup();
+
+    if (!res.headersSent) {
+      res.status(500).json({ error: message });
+    } else {
+      res.destroy(new Error(message));
+    }
+  };
+
+  audioStream.on('error', err => {
+    console.error('Audio stream error:', err);
+    failRequest('The YouTube audio stream failed.');
   });
 
-  ytdlp.on('error', err => {
-    console.error('yt-dlp failed to start:', err);
-    return res.status(500).end();
-  });
-  ytdlp.stderr.on('data', chunk => {
-    console.error('yt-dlp stderr:', chunk.toString());
-  });
-
-  // 2. Spawn FFmpeg to convert the piped input to MP3
   const ffmpegPath = ffmpegInstaller.path;
-  const ffmpegProc = spawn(ffmpegPath, [
+  const ffmpegArgs = [];
+  if (streamType.includes('opus')) {
+    ffmpegArgs.push('-f', 'opus');
+  }
+  ffmpegArgs.push(
     '-i', 'pipe:0',
     '-vn',
     '-acodec', 'libmp3lame',
@@ -188,27 +139,55 @@ app.post('/api/convert', async (req, res) => {
     '-metadata', `artist=${uploader}`,
     '-f', 'mp3',
     'pipe:1'
-  ], {
+  );
+
+  ffmpegProc = spawn(ffmpegPath, ffmpegArgs, {
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
   ffmpegProc.on('error', err => {
     console.error('FFmpeg failed to start:', err);
-    return res.status(500).end();
-  });
-  ffmpegProc.stderr.on('data', chunk => {
-    console.error('FFmpeg stderr:', chunk.toString());
+    failRequest('FFmpeg failed to start');
   });
 
-  // 3. Pipe yt-dlp output into ffmpeg stdin, then pipe ffmpeg stdout into response
-  ytdlp.stdout.pipe(ffmpegProc.stdin);
+  ffmpegProc.stderr.on('data', chunk => {
+    const text = chunk.toString();
+    ffmpegStderr += text;
+    console.error('FFmpeg stderr:', text);
+  });
+
+  audioStream.pipe(ffmpegProc.stdin);
   ffmpegProc.stdout.pipe(res);
+
+  ffmpegProc.stdout.once('data', () => {
+    startedStreaming = true;
+  });
+
+  ffmpegProc.on('close', code => {
+    if (finished) {
+      return;
+    }
+    if (code !== 0) {
+      const message = ffmpegStderr.trim().split('\n').pop() || `FFmpeg exited with code ${code}`;
+      console.error('FFmpeg exited with code %s: %s', code, message);
+      failRequest(message);
+      return;
+    }
+    if (!startedStreaming) {
+      failRequest('No audio was produced; the source may require authentication.');
+      return;
+    }
+    finished = true;
+  });
 
   // Cleanup if client aborts
   req.on('close', () => {
-    console.warn('Client aborted; terminating child processes');
-    ytdlp.kill('SIGKILL');
-    ffmpegProc.kill('SIGKILL');
+    if (finished) {
+      return;
+    }
+    finished = true;
+    console.warn('Client aborted; terminating stream');
+    cleanup();
   });
 });
 
